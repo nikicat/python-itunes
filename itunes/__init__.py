@@ -99,7 +99,7 @@ class _Request(object):
 
     def _get_cache_key(self):
         """Cache key"""
-        keys = self.params.keys()[:]
+        keys = list(self.params.keys())
         keys.sort()
         string = self.method
         for name in keys:
