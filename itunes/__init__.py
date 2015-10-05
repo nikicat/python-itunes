@@ -82,7 +82,11 @@ class _Request(object):
         url += data
         #print url
 
-        request = urllib.request.Request(url)
+        request = urllib.request.Request(url, headers={
+            'User-Agent': 'AppStore/2.0 iOS/8.1 model/iPhone7,2 build/12B411 (6; dt:106)',
+            'X-Apple-Tz': '3600',
+        })
+        
         response = urllib.request.urlopen(request)
         return response.read()
 
