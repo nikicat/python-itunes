@@ -5,10 +5,6 @@ import requests
 import numbers
 from six.moves import urllib
 try:
-    import simplejson as json
-except ImportError:
-    import json
-try:
     from hashlib import md5
 except ImportError:
     from md5 import md5
@@ -89,8 +85,9 @@ class _Request(object):
             },
             proxies={'http': self.proxy} if self.proxy else None,
         )
+        response.raise_for_status()
 
-        return response.text
+        return response.json()
 
     def execute(self, cacheable=False):
         try:
@@ -98,10 +95,9 @@ class _Request(object):
                 response = self._get_cached_response()
             else:
                 response = self._download_response()
-            response = clean_json(response)
-            return json.loads(response)
-        except urllib.error.HTTPError as e:
-            raise self._get_error(e.fp.read())
+            return response
+        except requests.HTTPError as e:
+            raise ServiceException(type='Error', message=e.response.reason) from e
 
     def _get_cache_key(self):
         """Cache key"""
@@ -127,10 +123,6 @@ class _Request(object):
             response_file.write(response)
             response_file.close()
         return open(os.path.join(_get_cache_dir(), self._get_cache_key()), "r").read()
-
-    def _get_error(self, text):
-        return ServiceException(type='Error', message=text)
-        raise
 
 
 # Webservice BASE OBJECT
