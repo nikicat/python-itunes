@@ -19,7 +19,7 @@ setup(
     url="https://github.com/ocelma/python-itunes",
     packages=['itunes'],
     install_requires=[
-          'six',
-      ],
-
+        'six',
+        'requests',
+    ],
 )

@@ -1,10 +1,9 @@
 #!/usr/bin/python
 """A python interface to search iTunes Store"""
 import os
-import urllib
+import requests
 import numbers
 from six.moves import urllib
-import re
 try:
     import simplejson as json
 except ImportError:
@@ -14,7 +13,7 @@ try:
 except ImportError:
     from md5 import md5
 
-__name__ = 'pyitunes'
+__name__ = 'itunes'
 __doc__ = 'A python interface to search iTunes Store'
 __author__ = 'Oscar Celma'
 __version__ = '0.2'
@@ -31,11 +30,10 @@ __cache_enabled = False  # Enable cache? if set to True, make sure that __cache_
 __cache_dir = './cache'  # Set cache directory
 
 
-
 def clean_json(data):
-   if isinstance(data,bytes):
-       data =data.decode()
-   return data.replace('\\\\', r'//').replace(r"\'", '\"').replace(r'\"', '').replace(r'\u','')
+    if isinstance(data, bytes):
+        data = data.decode()
+    return data.replace('\\\\', r'//').replace(r"\'", '\"').replace(r'\"', '').replace(r'\u', '')
 
 
 class ServiceException(Exception):
@@ -54,19 +52,21 @@ class ServiceException(Exception):
     def get_type(self):
         return self._type
 
+
 class _Request(object):
     """Representing an abstract web service operation."""
 
-    def __init__(self, method_name, params):
+    def __init__(self, method_name, params, proxy):
         self.params = params
         self.method = method_name
+        self.proxy = proxy
 
     def _download_response(self):
         """Returns a response"""
         data = []
         for name in self.params.keys():
             value = self.params[name]
-            if isinstance(value, numbers.Integral) or isinstance(value, float) :
+            if isinstance(value, numbers.Integral) or isinstance(value, float):
                 value = str(value)
             try:
                 data.append('='.join((name, urllib.parse.quote_plus(value.replace('&amp;', '&').encode('utf8')))))
@@ -80,15 +80,17 @@ class _Request(object):
             url = "http://" + url
         url += self.method + '?'
         url += data
-        #print url
 
-        request = urllib.request.Request(url, headers={
-            'User-Agent': 'AppStore/2.0 iOS/8.1 model/iPhone7,2 build/12B411 (6; dt:106)',
-            'X-Apple-Tz': '3600',
-        })
-        
-        response = urllib.request.urlopen(request)
-        return response.read()
+        response = requests.get(
+            url,
+            headers={
+                'User-Agent': 'AppStore/2.0 iOS/8.1 model/iPhone7,2 build/12B411 (6; dt:106)',
+                'X-Apple-Tz': '3600',
+            },
+            proxies={'http': self.proxy} if self.proxy else None,
+        )
+
+        return response.text
 
     def execute(self, cacheable=False):
         try:
@@ -130,6 +132,7 @@ class _Request(object):
         return ServiceException(type='Error', message=text)
         raise
 
+
 # Webservice BASE OBJECT
 class _BaseObject(object):
     """An abstract webservices object."""
@@ -138,12 +141,12 @@ class _BaseObject(object):
         self._method = method
         self._search_terms = dict()
 
-    def _request(self, method_name=None, params = None, cacheable = False):
+    def _request(self, method_name=None, params=None, cacheable=False, proxy=None):
         if not method_name:
             method_name = self._method
         if not params:
             params = self._get_params()
-        return _Request(method_name, params).execute(cacheable)
+        return _Request(method_name, params, proxy).execute(cacheable)
 
     def _get_params(self):
         params = {}
@@ -151,8 +154,8 @@ class _BaseObject(object):
             params[key] = self._search_terms[key]
         return params
 
-    def get(self):
-        self._json_results = self._request(cacheable=is_caching_enabled())
+    def get(self, proxy=None):
+        self._json_results = self._request(cacheable=is_caching_enabled(), proxy=proxy)
         if 'errorMessage' in self._json_results:
             raise ServiceException(type='Error', message=self._json_results['errorMessage'])
         self._num_results = self._json_results['resultCount']
@@ -189,6 +192,7 @@ class _BaseObject(object):
             l.append(item)
         return l
 
+
 # SEARCH
 class Search(_BaseObject):
     """ Search iTunes Store """
@@ -211,9 +215,9 @@ class Search(_BaseObject):
         self._search_terms['country'] = country   # ISO Country code for iTunes Store
         self._search_terms['media'] = media       # The media type you want to search for
         if entity:
-            self._search_terms['entity'] = entity # The type of results you want returned, relative to the specified media type
+            self._search_terms['entity'] = entity  # The type of results you want returned, relative to the specified media type
         if attribute:
-            self._search_terms['attribute'] = attribute # The attribute you want to search for in the stores, relative to the specified media type
+            self._search_terms['attribute'] = attribute  # The attribute you want to search for in the stores, relative to the specified media type
         self._search_terms['limit'] = limit       # Results limit
         if offset > 0:
             self._search_terms['offset'] = offset
@@ -221,7 +225,7 @@ class Search(_BaseObject):
             self._search_terms['order'] = order
         self._search_terms['lang'] = lang         # The language, English or Japanese, you want to use when returning search results
         self._search_terms['version'] = version   # The search result key version you want to receive back from your search
-        self._search_terms['explicit'] = explicit # A flag indicating whether or not you want to include explicit content in your search results
+        self._search_terms['explicit'] = explicit  # A flag indicating whether or not you want to include explicit content in your search results
 
         self._json_results = None
         self._num_results = None
@@ -258,7 +262,6 @@ class Item(object):
     # JSON SETTERs
     def _set(self, json):
         self.json = json
-        #print json
         if 'kind' in json:
             self.type = json['kind']
         else:
@@ -326,7 +329,7 @@ class Item(object):
         if not self.id:
             if 'collectionId' in self.json:
                 self.id = self.json['collectionId']
-            elif 'artistId' in  self.json:
+            elif 'artistId' in self.json:
                 self.id = self.json['artistId']
         return self.id
 
@@ -379,6 +382,7 @@ class Item(object):
             raise ServiceException(type='Error', message='Nothing found!')
         return items[1]
 
+
 # ARTIST
 class Artist(Item):
     """ Artist class """
@@ -394,6 +398,7 @@ class Artist(Item):
     # GETTERs
     def get_amg_id(self):
         return self.amg_id
+
 
 # ALBUM
 class Album(Item):
@@ -437,6 +442,7 @@ class Album(Item):
 
     def get_artist(self):
         return self.artist
+
 
 # TRACK
 class Track(Item):
@@ -495,11 +501,13 @@ class Track(Item):
     def get_price(self):
         return self.price
 
+
 # Audiobook
 class Audiobook(Album):
     """ Audiobook class """
     def __init__(self, id):
         Album.__init__(self, id)
+
 
 # Software
 class Software(Track):
@@ -552,30 +560,13 @@ class Software(Track):
         else:
             self.num_ratings = json.get('userRatingCount', None)
 
-    # GETTERs
-    def get_version(self):
-        return self.version
-    def get_description(self):
-        return self.description
-    def get_screenshots(self):
-        return self.screenshots
-    def get_genres(self):
-        return self.genres
-    def get_seller_url(self):
-        return self.seller_url
-    def get_languages(self):
-        return self.languages
-    def get_avg_rating(self):
-        return self.avg_rating
-    def get_num_ratings(self):
-        return self.num_ratings
 
 # CACHE
-def enable_caching(cache_dir = None):
+def enable_caching(cache_dir=None):
     global __cache_dir
     global __cache_enabled
 
-    if cache_dir == None:
+    if cache_dir is None:
         import tempfile
         __cache_dir = tempfile.mkdtemp()
     else:
@@ -584,20 +575,24 @@ def enable_caching(cache_dir = None):
         __cache_dir = cache_dir
     __cache_enabled = True
 
+
 def disable_caching():
     global __cache_enabled
     __cache_enabled = False
+
 
 def is_caching_enabled():
     """Returns True if caching is enabled."""
     global __cache_enabled
     return __cache_enabled
 
+
 def _get_cache_dir():
     """Returns the directory in which cache files are saved."""
     global __cache_dir
     global __cache_enabled
     return __cache_dir
+
 
 def get_md5(text):
     """Returns the md5 hash of a string."""
@@ -608,22 +603,27 @@ def get_md5(text):
         hash.update(text)
     return hash.hexdigest()
 
-#SEARCHES
+
+# SEARCHES
 def search_track(query, limit=100, offset=0, order=None, store=COUNTRY):
     return Search(query=query, media='music', entity='song',
                   offset=offset, limit=limit, order=order, country=store).get()
+
 
 def search_album(query, limit=100, offset=0, order=None, store=COUNTRY):
     return Search(query=query, media='music', entity='album',
                   limit=limit, offset=offset, order=order, country=store).get()
 
+
 def search_artist(query, limit=100, offset=0, order=None, store=COUNTRY):
     return Search(query=query, media='music', entity='musicArtist',
                   limit=limit, offset=offset, order=order, country=store).get()
 
+
 def search_app(query, limit=100, offset=0, order=None, store=COUNTRY):
     return Search(query=query, media='software', limit=limit,
                   offset=offset, order=order, country=store).get()
+
 
 def search(query, media='all', limit=100, offset=0, order=None, store=COUNTRY):
     return Search(query=query, media=media, limit=limit,
@@ -631,8 +631,8 @@ def search(query, media='all', limit=100, offset=0, order=None, store=COUNTRY):
 
 
 # LOOKUP
-def lookup(id, entity=None, country=None):
-    items = Lookup(id, entity=entity, country=country).get()
+def lookup(id, entity=None, country=None, proxy=None):
+    items = Lookup(id, entity=entity, country=country).get(proxy=proxy)
     if not items:
         raise ServiceException(type='Error', message='Nothing found!')
     return items[0]
